@@ -4,9 +4,10 @@
 #
 #                                                            2011-09-20
 #                                     Ryoichi KATO <ryo1kato@gmail.com>
+#                                      http://github.com/ryo1kato/maked
 #
-#   'maked' is a utility to build a source tree automatically
-#   using make (or any tool you want) when any source file is modified.
+#   'maked' is a utility to build a source tree automatically using
+#   make, or any tool you want, whenever any source file is modified.
 #   'maked' uses Linux's inotify-tools package. So you have to install it
 #   first:
 #
@@ -18,50 +19,64 @@
 #   whenever change is detected under current working directory, it calls
 #   'make' command (or any command specified with '-m' option)
 #
-#   For performance reasons, by default 'maked' won't execute 'make'
-#   more frequent than once per 2 seconds. (in other words, minimum
+#   For performance reasons, 'maked' won't execute 'make' more frequent
+#    than once per 2 seconds by default. (in other words, minimum
 #   interval to execute 'make' is 2secs) If a change is detected in less
-#   than 2 seconds from the previous change, it will be scheduled to be
+#   than 2 seconds from the previous change, it will scheduled to be
 #   executed after 2 seconds. You can change the interval by '-i' option,
-#   or specify '0' to disable this feature completely..
+#   or specify '0' to disable this feature completely.
+#
 
 interval=2
-file_ignore='\.(swp|orig|old[0-9]*|bak[0-9]*)$|^core$|.*~$'
+file_ignore='\.(swp|orig|old[0-9]*|bak[0-9]*)$|^(core|[0-9]+)$|.*~$'
 dir_ignore='\.(git|hg|svn)'
-make='make'
+makecmd='make'
 
 #####################################################
 progname='maked'
 
-usage () {
+print_help () {
 cat << EOF
 Usage: $progname [OPTSIONS] [--] [MAKE_ARGS...]
-  Monitor changes under current directory using inotify, and
-  runs 'make'
+  Monitor changes under current directory and runs 'make'
 EXAMPLE
-    maked -- -j 3
-        Run make with -j 3 option when changes are detected.
-    maked --interval 10 vmlinux
-        Build 'vmlinux' file, with minimum interval 10 seconds.
-    maked -m ant
-        Call 'ant' command instead of 'make'.
+  maked -- -j 3
+      Run make with -j 3 option when changes are detected.
+  maked --interval 10 vmlinux
+      Build 'vmlinux' file, with minimum interval 10 seconds.
+  maked --cmd ant
+      Call 'ant' command instead of 'make'.
 OPTIONS
-    -i, --interval=SECONDS    Minimum interval to run make. (default $interval sec)
-    -e, --file-exclude=REGEX  Files to be ignored, as regular expression.
-       Default: /$file_ignore/
-    -d, --dir-exclude=REGEX   Directories to be ignored, as regular expression
-       Default: /$dir_ignore/
-    -C, --diretory            Set current directory (default '.')
-    -m, --make=COMMAND_NAME   Specify alternative make command
-    -h, --help                Show this help.
-    -v, --verbose             Print detail information.
-    --                        Indicate end of option, in case MAKE_ARGS starts
-                                with dash(-)
+  -i, --interval=SECONDS     Minimum interval to run make. (default ${interval}sec.)
+  -e, --exclude, --ignore=RE Files to be ignored, as regex.
+     Default: /$file_ignore/
+  -d, --dir-exclude=RE       Directories to be ignored, as regex.
+     Default: /$dir_ignore/
+  -C, --diretory             Set current directory (default '.')
+  -c, --cmd, --command=CMD   Specify alternative make command.
+  -h, --help                 Show this help.
+  -v, --verbose              Print detail information.
+  --                         Indicate end of option for maked, in case
+                             MAKE_ARGS starts with dash('-').
 BUGS
-    Works only on Linux platform, as it uses inotify(7) systemcalls.
+  * Works only on Linux platform, because it uses inotify(7) systemcalls.
 EOF
 }
 
+print_help_no_inotify_tools () {
+cat <<EOF >&2
+$progname: inotify-tools is not installed (or not available in the \$PATH)
+    To install it, try
+        $ sudo yum install inotify-tools      (on Redhat/Fedora etc.)
+    or
+        $ sudo apt-get install inotify-tools  (on Debian/Ubuntu etc.)
+EOF
+}
+
+#####################################################
+##
+## Common Functions
+##
 MSG () { echo "$progname: $*"; }
 DIE () { MSG "ERROR: $@" >&2; exit 1; }
 MSG_V () {
@@ -70,6 +85,10 @@ MSG_V () {
     fi
 }
 
+#####################################################
+##
+## Parse Commandline Options
+##
 optparse () {
     local opt="$1"
     local arg="$2"
@@ -77,11 +96,11 @@ optparse () {
     case $1 in
         --*=*)
             eval "$name=\"${opt#*=}\"";
-            return 1;; # indicates caller must do 'shift'
+            return 0;;
         -*)
             [ -n "$arg" ] || DIE "No argument for option '$opt'; try '--help'"
             eval "$name=\"$arg\"";
-            return 0;;
+            return 1;; # indicates caller must do extra 'shift'
         *) DIE "Internal Error"
     esac
 }
@@ -89,20 +108,28 @@ optparse () {
 while [ $# -ge 1 ]
 do
     case $1 in
-        -e|--file-exclude*) optparse "$1" "$2" file_ignore || shift;;
-        -d|--dir-exclude*)  optparse "$1" "$2" dir_ignore  || shift;;
-        -C|--directory*)    optparse "$1" "$2" directory   || shift;;
-        -m|--make*)         optparse "$1" "$2" make        || shift;;
-        -i|--interval*)     optparse "$1" "$2" interval    || shift;;
-        -h|--help) usage; exit 0;;
+        -[a-z][a-z]*) set -- ${1:0:2} -${1:2}; continue;;
+        -e|--exclude*|--ignore*) optparse "$1" "$2" file_ignore || shift;;
+        -d|--dir-exclude*)       optparse "$1" "$2" dir_ignore  || shift;;
+        -C|--directory*)         optparse "$1" "$2" directory   || shift;;
+        -c|--cmd*|--command*)    optparse "$1" "$2" makecmd     || shift;;
+        -i|--interval*)          optparse "$1" "$2" interval    || shift;;
+        -h|--help) print_help; exit 0;;
         -v|--verbose) opt_verbose=yes;;
+        --) shift; break;;
         -*) DIE "Unknown option $1" ;;
-        --) break;;
+        *)  break;;
     esac
     shift
 done
 
-#####################################################
+###
+### Check Commandline Options
+###
+if ! [[ $interval =~ ^[0-9]+$ ]];
+then
+    DIE "Invalid argument for '--interval': $interval"
+fi
 
 if [ -d "$directory" -a -x "$directory" ]; then
     cd "$directory"
@@ -112,43 +139,67 @@ else
     directory="$PWD"
 fi
 
+
+#####################################################
+##
+## Start Execution
+##
+if ! type inotifywait > /dev/null 2>&1
+then
+    print_help_no_inotify_tools
+    exit 1
+fi
+
 MSG_V "Started"
 MSG_V "    interval:      $interval sec"
-MSG_V "    make command:  $make"
+MSG_V "    make command:  $makecmd"
 MSG_V "    file_ignore:   $file_ignore"
 MSG_V "    dir_ignore:    $dir_ignore"
 MSG_V "    directory:     $directory"
+MSG_V ""
 
+
+if [ -n "$opt_verbose" ]; then
+    opt_quiet=''
+else
+    opt_quiet='--quiet'
+fi
 
 last_executed=0
-inotifywait -e create -e modify -e move -r -m . |
-    while read dir event file
-    do
-        MSG_V "Event '$event' for file '$file' in '$dir'"
-        if [[ $event =~ ISDIR ]]
+inotifywait -m $opt_quiet -e create -e modify -e move -r . |
+while read dir event file
+do
+    MSG_V "Event '$event' for file '$file' in '$dir'"
+    if [[ $event =~ ISDIR ]]
+    then
+        MSG_V "Ignoring change of '$dir'"\
+              "(changes for directories are ignored)"
+    elif [[ $dir =~ $dir_ignore ]]
+    then
+        MSG_V "Ignoring change in '$dir': match to dir_ignore pattern"
+    elif [[ $file =~ $file_ignore ]]
+    then
+        MSG_V "Ignoring change of '$dir': match to file_ignore pattern"
+    else
+        ((remain = (last_executed + interval) - SECONDS))
+        if (( remain > 0 ))
         then
-            MSG_V "Ignoring change of '$dir'"\
-                  "(changes for directories are ignored)"
-        elif [[ $dir =~ $dir_ignore ]]
-        then
-            MSG_V "Ignoring change in '$dir': match to dir_ignore pattern"
-        elif [[ $file =~ $file_ignore ]]
-        then
-            MSG_V "Ignoring change of '$dir': match to file_ignore pattern"
-        else
-            ((remain = (last_executed + interval) - SECONDS))
-            if (( remain > 0 ))
-            then
-                MSG_V "$remain seconds to wait."
-                sleep $remain
-            fi
-            MSG_V "Executing: $make $*"
-            "$make" "$@"
-            last_executed=$SECONDS
+            MSG_V "$remain seconds to wait."
+            sleep $remain
         fi
-    done
+        MSG "Executing: '$makecmd $*' (file '$file' changed)"
+        "$makecmd" "$@"
+        last_executed=$SECONDS
+        # discard all the input(event output) while executing make
+        ## FIXME: Somehow this doesn't work with bash; works with zsh though.
+        #while read -t 0 line
+        #do
+        #    MSG "---- DEBUG: Discarding event: '$line'"
+        #done
+    fi
+done
 
-inotifywait_rc="${PIPESTATUS[0]}" 
+inotifywait_rc="${PIPESTATUS[0]}"
 if [ "$inotifywait_rc" -ne 0 ]; then
-    DIE "inotifywait(1) exitted abnormally: error code: $inotifywait_rc"
+    DIE "inotifywait(1) exited abnormally: error code: $inotifywait_rc"
 fi
