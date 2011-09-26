@@ -69,9 +69,10 @@ The script requires Bash and inotify-tools installation
 on your Linux system. Most likely, bash is your default shell.
 
 1. Install inotify-tools
-       $ sudo apt-get install inotify-tools    (On Debian / Ubuntsu etc.)
-     or
-       $ sudo yum install inotify-tools        (On Redhat/Fedora etc.)
+
+           $ sudo apt-get install inotify-tools    (On Debian / Ubuntsu etc.)
+         or
+           $ sudo yum install inotify-tools        (On Redhat/Fedora etc.)
 
     See https://github.com/rvoicilas/inotify-tools/ for more infomation.
 
