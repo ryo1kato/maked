@@ -26,13 +26,13 @@ save changes, then this script will do it for you.
 Simple example to build Linux kernel's bzImage would using GNU make
 would be like this:
 
-    $ maked --make gmake -- -j3 bzImage
+    $ maked --cmd gmake -- -j3 bzImage
 
 Or, if you're doing try-and-error on some configuration file for
 say, Apache, you can used this command to automatically restart
 apache every time you save changes on the configuration file.
 
-    $ maked --directory /etc/httpd --make=apachectl restart
+    $ maked --directory /etc/httpd --cmd=apachectl restart
 
 Or something more trivial like this:
 
@@ -46,7 +46,7 @@ How it works
 certain directory (default is currenty directory)
 
 When change is detected, it just call `make` command
-(or any command you specify by `-m` option)
+(or any command you specify by `-c` option)
 
 If you're familiar with shell scripts, below code snippet
 -- though extremely simplified -- will give you an idea on

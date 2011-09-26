@@ -17,7 +17,7 @@
 #
 #   Once started, 'maked' monitors filesystem using inotifywait(1), and
 #   whenever change is detected under current working directory, it calls
-#   'make' command (or any command specified with '-m' option)
+#   'make' command (or any command specified with '-c' option)
 #
 #   For performance reasons, 'maked' won't execute 'make' more frequent
 #    than once per 2 seconds by default. (in other words, minimum
@@ -77,6 +77,7 @@ OPTIONS
   -C, --diretory       Set current directory (default: '.')
                        (Synonymous to make's same option)
   -c, --cmd=COMMAND    Specify alternative make command.
+  -m, --make           Same as -'c', obsoleted.
   -v, --verbose        Print detail information.
   -V, --version        Print version information.
   -h, --help           Show this help.
@@ -167,7 +168,8 @@ do
                               exclude="$exclude|$add_exclude"
                               ;;
         -C|--directory*)      optparse "$1" "$2" directory   || shift;;
-        -c|--cmd*|--command*) optparse "$1" "$2" makecmd     || shift;;
+        -c|--cmd*|--command*|-m|--make*)
+                              optparse "$1" "$2" makecmd     || shift;;
         -i|--interval*)       optparse "$1" "$2" interval    || shift;;
         -v|--verbose) opt_verbose=yes;;
         -V|--version) print_version; exit 0;;
