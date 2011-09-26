@@ -78,6 +78,9 @@ OPTIONS
                        (Synonymous to make's same option)
   -c, --cmd=COMMAND    Specify alternative make command.
   -m, --make           Same as -'c', obsoleted.
+  -w, --watch          Keep watching even while executing 'make'.
+                       (You may want to use '-E' option to ignore all files
+                        those might be changed by 'make' command)
   -v, --verbose        Print detail information.
   -V, --version        Print version information.
   -h, --help           Show this help.
@@ -171,6 +174,7 @@ do
         -c|--cmd*|--command*|-m|--make*)
                               optparse "$1" "$2" makecmd     || shift;;
         -i|--interval*)       optparse "$1" "$2" interval    || shift;;
+        -w|--watch)   opt_watch=yes;;
         -v|--verbose) opt_verbose=yes;;
         -V|--version) print_version; exit 0;;
         -h|--help)    print_help; exit 0;;
@@ -230,6 +234,7 @@ inotifywait -m $inotifywait_opt \
     -r . |
 while read dir event file
 do
+    discard_stdin
     MSG_V "Event '$event' for file '$file' in '$dir'"
     if [[ $event =~ ISDIR ]]
     then
@@ -252,7 +257,9 @@ do
         "$makecmd" "$@"
         MSG_V "Command finished."
         last_executed=$SECONDS
-        discard_stdin
+        if [ "$opt_watch" != 'yes' ]; then
+            discard_stdin
+        fi
     fi
 done
 
