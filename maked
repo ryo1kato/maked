@@ -28,12 +28,33 @@
 #
 
 interval=2
-file_ignore='\.(swp|orig|old[0-9]*|bak[0-9]*)$|^(core|[0-9]+)$|.*~$'
-dir_ignore='\.(git|hg|svn)'
+## default is object files, temporary/backup files, dotfiles and core files.
+exclude='\.(out|o|obj|a|so|class|hi|hc)$' # object files
+exclude="$exclude"'|\.(tmp|orig|old[0-9]*|bak[0-9]*)$|.*~$' # backup files
+exclude="$exclude"'|/\..*' # dot file (note for preceding '/')
+exclude="$exclude"'|^(out|tmp|core|[0-9]+)$' # coredump etc.
 makecmd='make'
 
 #####################################################
 progname='maked'
+version='v0.1'
+copyright='2011, Ryoichi KATO <ryo1kato@gmail.com>'
+license="GPLv2: GNU GPL version 2"
+
+print_version () {
+cat <<EOF
+$progname $version
+License $license
+Copyright (c) $copyright"
+EOF
+}
+
+print_defaults () {
+    for var in interval exclude makecmd
+    do
+        eval print '%10s: %s\n' $var \$var
+    done
+}
 
 print_help () {
 cat << EOF
@@ -47,19 +68,25 @@ EXAMPLE
   maked --cmd ant
       Call 'ant' command instead of 'make'.
 OPTIONS
-  -i, --interval=SECONDS     Minimum interval to run make. (default ${interval}sec.)
-  -e, --exclude, --ignore=RE Files to be ignored, as regex.
-     Default: /$file_ignore/
-  -d, --dir-exclude=RE       Directories to be ignored, as regex.
-     Default: /$dir_ignore/
-  -C, --diretory             Set current directory (default '.')
-  -c, --cmd, --command=CMD   Specify alternative make command.
-  -h, --help                 Show this help.
-  -v, --verbose              Print detail information.
-  --                         Indicate end of option for maked, in case
-                             MAKE_ARGS starts with dash('-').
+  -i, --interval=SEC   Minimum interval to run make. (default ${interval}sec.)
+  -e, --exclude=REGEX  Files to be ignored, as POSIX regular expression.
+  (default is object/backup/dot-files such as '.a', '.bak', '.git' etc)
+                       If you want to ignore some dir, try '^./YourDirName'
+  -E, --add-exclude    Instead of overriding default value of '--exclude',
+                       specify additional regex for ignoring files.
+  -C, --diretory       Set current directory (default: '.')
+                       (Synonymous to make's same option)
+  -c, --cmd=COMMAND    Specify alternative make command.
+  -v, --verbose        Print detail information.
+  -V, --version        Print version information.
+  -h, --help           Show this help.
+  --                   Indicate end of option for maked, in case
+                       MAKE_ARGS starts with dash('-').
 BUGS
   * Works only on Linux platform, because it uses inotify(7) systemcalls.
+    vi 'inotify-tools' utility.
+  * If a directory name matches to a regex specified by '--exclude',
+    all changes within the directory is ignored.
 EOF
 }
 
@@ -87,6 +114,30 @@ MSG_V () {
 
 #####################################################
 ##
+## Utility Functions
+##
+
+# discard all the input(event output) while executing make command
+discard_stdin () {
+
+    ## NOTE: Somehow 'read -t 0' this doesn't work with bash (even with bash-4)
+    ## works with zsh and AT&T ksh93, though.
+    # while read -t 0 line
+    # do
+    #     MSG_V "Discarding pending event: '$line'"
+    # done
+
+    # Use /dev/stdin instead of normal stdin because dd close stdin,
+    # which cause subsequent read to fail
+    dd iflag=nonblock if=/dev/stdin 2> /dev/null | while read line
+    do
+        MSG_V "Discarding pending event: $line"
+    done
+}
+
+
+#####################################################
+##
 ## Parse Commandline Options
 ##
 optparse () {
@@ -108,14 +159,19 @@ optparse () {
 while [ $# -ge 1 ]
 do
     case $1 in
-        -[a-z][a-z]*) set -- ${1:0:2} -${1:2}; continue;;
-        -e|--exclude*|--ignore*) optparse "$1" "$2" file_ignore || shift;;
-        -d|--dir-exclude*)       optparse "$1" "$2" dir_ignore  || shift;;
-        -C|--directory*)         optparse "$1" "$2" directory   || shift;;
-        -c|--cmd*|--command*)    optparse "$1" "$2" makecmd     || shift;;
-        -i|--interval*)          optparse "$1" "$2" interval    || shift;;
-        -h|--help) print_help; exit 0;;
+        -[a-z][a-z]*)
+            # expand '-abcd' to '-a -bcd' (and eventually '-a -b -c -d')
+            set -- ${1:0:2} -${1:2}; continue;;
+        -e|--exclude*)        optparse "$1" "$2" exclude     || shift;;
+        -E|--add-exclude*)    optparse "$1" "$2" add_exclude || shift
+                              exclude="$exclude|$add_exclude"
+                              ;;
+        -C|--directory*)      optparse "$1" "$2" directory   || shift;;
+        -c|--cmd*|--command*) optparse "$1" "$2" makecmd     || shift;;
+        -i|--interval*)       optparse "$1" "$2" interval    || shift;;
         -v|--verbose) opt_verbose=yes;;
+        -V|--version) print_version; exit 0;;
+        -h|--help)    print_help; exit 0;;
         --) shift; break;;
         -*) DIE "Unknown option $1" ;;
         *)  break;;
@@ -150,36 +206,37 @@ then
     exit 1
 fi
 
-MSG_V "Started"
-MSG_V "    interval:      $interval sec"
-MSG_V "    make command:  $makecmd"
-MSG_V "    file_ignore:   $file_ignore"
-MSG_V "    dir_ignore:    $dir_ignore"
-MSG_V "    directory:     $directory"
-MSG_V ""
+MSG_V "-------- Started --------"
+MSG_V "    interval:  $interval sec"
+MSG_V "    command:   $makecmd"
+MSG_V "    args:      $*"
+MSG_V "    exclude:   $exclude"
+MSG_V "    directory: $directory"
+MSG_V "-------------------------"
 
 
 if [ -n "$opt_verbose" ]; then
-    opt_quiet=''
+    inotifywait_opt=''
 else
-    opt_quiet='--quiet'
+    inotifywait_opt='--quiet'
 fi
 
 last_executed=0
-inotifywait -m $opt_quiet -e create -e modify -e move -r . |
+inotifywait -m $inotifywait_opt \
+    -e create -e modify -e move \
+    --exclude "$exclude" \
+    -r . |
 while read dir event file
 do
     MSG_V "Event '$event' for file '$file' in '$dir'"
     if [[ $event =~ ISDIR ]]
     then
         MSG_V "Ignoring change of '$dir'"\
-              "(changes for directories are ignored)"
-    elif [[ $dir =~ $dir_ignore ]]
-    then
-        MSG_V "Ignoring change in '$dir': match to dir_ignore pattern"
-    elif [[ $file =~ $file_ignore ]]
-    then
-        MSG_V "Ignoring change of '$dir': match to file_ignore pattern"
+              "(changes for directories are all ignored)"
+    ## It's easy to debug not using "inotifywait --exclude"
+    #elif [[ $file =~ $exclude ]]
+    #then
+    #    MSG_V "Ignoring change of '$dir': match to exclude pattern"
     else
         ((remain = (last_executed + interval) - SECONDS))
         if (( remain > 0 ))
@@ -187,15 +244,13 @@ do
             MSG_V "$remain seconds to wait."
             sleep $remain
         fi
-        MSG "Executing: '$makecmd $*' (file '$file' changed)"
+        MSG "Executing: '$makecmd'"
+        MSG_V "      args: '$*'"
+        MSG_V "      file '$file' changed"
         "$makecmd" "$@"
+        MSG_V "Command finished."
         last_executed=$SECONDS
-        # discard all the input(event output) while executing make
-        ## FIXME: Somehow this doesn't work with bash; works with zsh though.
-        #while read -t 0 line
-        #do
-        #    MSG "---- DEBUG: Discarding event: '$line'"
-        #done
+        discard_stdin
     fi
 done
 
