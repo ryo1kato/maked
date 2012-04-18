@@ -144,44 +144,27 @@ discard_stdin () {
 ##
 ## Parse Commandline Options
 ##
-optparse () {
-    local opt="$1"
-    local arg="$2"
-    local name="$3"
-    case $1 in
-        --*=*)
-            eval "$name=\"${opt#*=}\"";
-            return 0;;
-        -*)
-            [ -n "$arg" ] || DIE "No argument for option '$opt'; try '--help'"
-            eval "$name=\"$arg\"";
-            return 1;; # indicates caller must do extra 'shift'
-        *) DIE "Internal Error"
-    esac
-}
-
 while [ $# -ge 1 ]
 do
     case $1 in
-        -[a-z][a-z]*)
+        -[^-][^-]*)
             # expand '-abcd' to '-a -bcd' (and eventually '-a -b -c -d')
-            firstarg="$1"
-            shift;
+            firstarg="$1"; shift
             set -- ${firstarg:0:2} -${firstarg:2} "$@"; continue;;
-        -e|--exclude*)        optparse "$1" "$2" exclude     || shift;;
-        -E|--add-exclude*)    optparse "$1" "$2" add_exclude || shift
-                              exclude="$exclude|$add_exclude"
-                              ;;
-        -C|--directory*)      optparse "$1" "$2" directory   || shift;;
-        -c|--cmd*|--command*|-m|--make*)
-                              optparse "$1" "$2" makecmd     || shift;;
-        -i|--interval*)       optparse "$1" "$2" interval    || shift;;
+        --*=*)
+            firstarg="$1"; shift;
+            set -- ${firstarg%%=*} ${firstarg#*=} "$@"; continue;;
+        -e|--exclude*)        exclude="$2";;
+        -E|--add-exclude*)    exclude="$exclude|$2";;
+        -C|--directory*)      directory="$2";;
+        -c|--cmd|--command|-m|--make) makecmd="$2";;
+        -i|--interval*)       interval="$2";;
         -w|--watch)   opt_watch=yes;;
         -v|--verbose) opt_verbose=yes;;
         -V|--version) print_version; exit 0;;
         -h|--help)    print_help; exit 0;;
         --) shift; break;;
-        -*) DIE "Unknown option $1" ;;
+        -*) DIE "Unknown option '$1'" ;;
         *)  break;;
     esac
     shift
